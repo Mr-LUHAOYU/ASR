@@ -1,3 +1,5 @@
 datasets/
 features/
 LibriSpeech/
+__pycache__
+*.pth
