@@ -6,7 +6,6 @@ import argparse
 from tqdm import tqdm
 
 
-
 class AudioFeatureAnalysis:
     def __init__(self, sr=44100, n_mfcc=13):
         self.sr = sr

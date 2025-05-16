@@ -2,69 +2,52 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import torch
 import torch.nn as nn
-from lstm import BiLSTM
+from models import BiLSTM, MLP, CombineModel
 from dataset import DataSet
 from params import Config
+from sklearn.preprocessing import RobustScaler
 
 torch.random.manual_seed(42)
 
 
-class CustomLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, inputs, labels):
-        """
-        Args:
-            inputs: Tensor of shape [batch_size, num_classes] (logits or probabilities)
-            labels: Tensor of shape [batch_size] (ground truth class indices)
-        Returns:
-            loss: Scalar tensor
-        """
-        batch_size, num_classes = inputs.shape
-        probs = torch.softmax(inputs, dim=1)  # 转换为概率 [batch_size, num_classes]
-
-        # 正确类别的概率
-        true_probs = 1 - probs[torch.arange(batch_size), labels]  # [batch_size]
-
-        # 错误类别的概率
-        mask = torch.ones_like(probs, dtype=bool)
-        mask[torch.arange(batch_size), labels] = False
-        wrong_probs = probs[mask].view(batch_size, num_classes - 1)  # [batch_size, num_classes-1]
-
-        total_loss = (wrong_probs.pow(2).sum() + true_probs.pow(2).sum()) / batch_size
-
-        return total_loss
-
-
-def train_model(dataset: DataSet, num_epochs=50, batch_size=16, learning_rate=0.001):
+def train_deep_model(dataset: DataSet, num_epochs=1000, batch_size=32, learning_rate=0.001):
     # 预处理数据
-    X, y = dataset.trainData()
-    X = torch.tensor(X.to_numpy(), dtype=torch.float)
-    y = torch.tensor(Config.encoder.transform(y.squeeze()))
-    train_dataset = TensorDataset(X, y)
+    scaler = RobustScaler()
 
-    X, y = dataset.validData()
-    X = torch.tensor(X.to_numpy(), dtype=torch.float)
+    X, y, T = dataset.trainData()
+    X = scaler.fit_transform(X)
+    X = torch.tensor(X, dtype=torch.float)
     y = torch.tensor(Config.encoder.transform(y.squeeze()))
-    val_dataset = TensorDataset(X, y)
+    T = torch.tensor(T.to_numpy(), dtype=torch.float)
+    N, D = T.shape
+    T = T.reshape(N // 117, 117, D)
+    train_dataset = TensorDataset(X, y, T)
+
+    X, y, T = dataset.validData()
+    X = scaler.transform(X)
+    X = torch.tensor(X, dtype=torch.float)
+    y = torch.tensor(Config.encoder.transform(y.squeeze()))
+    T = torch.tensor(T.to_numpy(), dtype=torch.float)
+    N, D = T.shape
+    T = T.reshape(N // 117, 117, D)
+    val_dataset = TensorDataset(X, y, T)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # 初始化模型
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = BiLSTM().to(device)
+    # model = BiLSTM().to(device)
+    # model = MLP().to(device)
+    model = CombineModel().to(device)
 
     # 损失函数和优化器
-    criterions = [
-        [nn.CrossEntropyLoss(), 1],
-        [CustomLoss(), 1],
-    ]
+    criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # 训练循环
-    best_val_acc = 0.0
+    best_train = [0.0,  0.0]
+    best_val = [0.0, 0.0]
 
     for epoch in range(num_epochs):
         model.train()
@@ -72,15 +55,14 @@ def train_model(dataset: DataSet, num_epochs=50, batch_size=16, learning_rate=0.
         correct = 0
         total = 0
 
-        for inputs, labels in train_loader:
+        for inputs, labels, temporals in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
+            temporals = temporals.to(device)
 
             # 前向传播
-            outputs = model(inputs)
+            outputs = model(inputs, temporals)
 
-            loss = 0
-            for criterion, weight in criterions:
-                loss += criterion(outputs, labels)
+            loss = criterion(outputs, labels)
 
             # 反向传播和优化
             optimizer.zero_grad()
@@ -102,13 +84,13 @@ def train_model(dataset: DataSet, num_epochs=50, batch_size=16, learning_rate=0.
         total = 0
 
         with torch.no_grad():
-            for inputs, labels in val_loader:
+            for inputs, labels, temporals in val_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
-                outputs = model(inputs)
+                temporals = temporals.to(device)
 
-                loss = 0
-                for criterion, weight in criterions:
-                    loss += criterion(outputs, labels)
+                outputs = model(inputs, temporals)
+
+                loss = criterion(outputs, labels)
 
                 val_loss += loss.item()
                 _, predicted = torch.max(outputs.data, 1)
@@ -126,14 +108,23 @@ def train_model(dataset: DataSet, num_epochs=50, batch_size=16, learning_rate=0.
               f'Val Acc: {val_acc:.2f}%', end='')
 
         # 保存最佳模型
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
+        if val_acc > best_val[1]:
+            best_val = [train_acc, val_acc]
             torch.save(model.state_dict(), 'best_model.pth')
 
-    print(f'Training complete. Best validation accuracy: {best_val_acc:.2f}%')
+        if train_acc > best_train[0]:
+            best_train = [train_acc, val_acc]
+
+    print(f'\nTraining complete.')
+    print(f'best on train: train_acc={best_train[0]}, val_acc={best_train[1]}')
+    print(f'best on val: train_acc={best_val[0]}, val_acc={best_val[1]}')
 
 
 if __name__ == '__main__':
     data = DataSet('SAVEE')
     data.setValidSpeaker()
-    train_model(data)
+    train_deep_model(data)
+    # for i in range(4):
+    #     data.setValidSpeaker(i)
+    #     train_deep_model(data)
+
