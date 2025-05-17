@@ -9,6 +9,7 @@ class BiLSTM(nn.Module):
             num_layers=2, dropout=0.5
     ):
         super().__init__()
+        self.name = 'lstm'
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
@@ -51,6 +52,7 @@ class BiLSTM(nn.Module):
 class MLP(nn.Module):
     def __init__(self, input_dim=6373, num_classes=7, dropout=0.5):
         super(MLP, self).__init__()
+        self.name = 'mlp'
         self.fc1 = nn.Linear(input_dim, 2048)  # 降维
         self.ln1 = nn.LayerNorm(2048)  # 层归一化
         self.relu1 = nn.ReLU()
@@ -93,6 +95,7 @@ class CombineModel(nn.Module):
             num_classes=7, dropout=0.5
     ):
         super(CombineModel, self).__init__()
+        self.name = 'combine'
         self.mlp = MLP(features_dim, num_classes, dropout=dropout)
         self.lstm = BiLSTM(temporal_dim, num_classes, dropout=dropout)
         self.attention = nn.Sequential(
