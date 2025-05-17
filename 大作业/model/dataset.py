@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
-from params import Config
+import torch
+from sklearn.preprocessing import RobustScaler
+from params import config
 
 
 class Speaker(object):
@@ -24,10 +26,11 @@ class Speaker(object):
 class DataSet(object):
     def __init__(self, name: str):
         self.name = name
-        self.path = Config.basePath / self.name
+        self.path = config.basePath / 'features' / self.name
         self.speakers = pd.read_csv(self.path / 'speakers.csv').to_numpy().squeeze()
         print('total number of speakers: %d' % len(self.speakers))
         self.validSpeaker = None
+        self.scaler = RobustScaler()
 
     def __len__(self):
         return len(self.speakers)
@@ -53,13 +56,26 @@ class DataSet(object):
         y = pd.concat(y)
         T = pd.concat(T)
 
-        return X, y, T
+        return self._process(X, y, T)
 
     def validData(self):
         s = Speaker(self.path, self.validSpeaker)
-        return s.X, s.y, s.T
+        return self._process(s.X, s.y, s.T)
+
+    def _process(self, X, y, T):
+        if hasattr(self.scaler, 'mean_'):  # 检查是否已经fit过
+            X = self.scaler.transform(X)  # 直接transform
+        else:
+            X = self.scaler.fit_transform(X)  # 首次需要fit_transform
+        X = torch.tensor(X, dtype=torch.float)
+        y = torch.tensor(config.encoder.transform(y.squeeze()))
+        T = torch.tensor(T.to_numpy(), dtype=torch.float)
+        N, D = T.shape
+        T = T.reshape(N // 117, 117, D).transpose(1, 2)
+        lengths = (~torch.isnan(T[:, :, 0])).sum(dim=1)
+        return X, y, T, lengths
 
 
 if __name__ == '__main__':
-    dataset = DataSet('SAVEE')
+    dataset = DataSet(config.dataset)
     print(len(dataset))

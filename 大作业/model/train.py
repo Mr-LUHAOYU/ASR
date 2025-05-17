@@ -4,49 +4,55 @@ import torch
 import torch.nn as nn
 from models import BiLSTM, MLP, CombineModel
 from dataset import DataSet
-from params import Config
-from sklearn.preprocessing import RobustScaler
+from params import config
 
 torch.random.manual_seed(42)
 
 
-def train_deep_model(dataset: DataSet, num_epochs=1000, batch_size=32, learning_rate=0.001):
+def logPrint(*args, **kwargs):
+    if kwargs.get('clear', False):
+        file = open(config.trainLog, 'w')
+        print(file=file)
+        file.close()
+    else:
+        file = open(config.trainLog, 'a')
+        print(*args, **kwargs)
+        print(*args, **kwargs, file=file)
+        file.close()
+
+
+def train_deep_model(
+        dataset: DataSet, model: str = 'combine',
+        num_epochs=10, batch_size=32, learning_rate=0.001,
+        dropout=0.5
+):
     # 预处理数据
-    scaler = RobustScaler()
+    X, y, T, lengths = dataset.trainData()
+    train_dataset = TensorDataset(X, y, T, lengths)
 
-    X, y, T = dataset.trainData()
-    X = scaler.fit_transform(X)
-    X = torch.tensor(X, dtype=torch.float)
-    y = torch.tensor(Config.encoder.transform(y.squeeze()))
-    T = torch.tensor(T.to_numpy(), dtype=torch.float)
-    N, D = T.shape
-    T = T.reshape(N // 117, 117, D)
-    train_dataset = TensorDataset(X, y, T)
-
-    X, y, T = dataset.validData()
-    X = scaler.transform(X)
-    X = torch.tensor(X, dtype=torch.float)
-    y = torch.tensor(Config.encoder.transform(y.squeeze()))
-    T = torch.tensor(T.to_numpy(), dtype=torch.float)
-    N, D = T.shape
-    T = T.reshape(N // 117, 117, D)
-    val_dataset = TensorDataset(X, y, T)
+    X, y, T, lengths = dataset.validData()
+    val_dataset = TensorDataset(X, y, T, lengths)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # 初始化模型
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # model = BiLSTM().to(device)
-    # model = MLP().to(device)
-    model = CombineModel().to(device)
+    if model.lower() == 'combine':
+        model = CombineModel(dropout=dropout).to(device)
+    elif model.lower() == 'bilstm':
+        model = BiLSTM(dropout=dropout).to(device)
+    elif model.lower() == 'mlp':
+        model = MLP(dropout=dropout).to(device)
+    else:
+        raise Exception('Unknown model')
 
     # 损失函数和优化器
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # 训练循环
-    best_train = [0.0,  0.0]
+    best_train = [0.0, 0.0]
     best_val = [0.0, 0.0]
 
     for epoch in range(num_epochs):
@@ -55,12 +61,11 @@ def train_deep_model(dataset: DataSet, num_epochs=1000, batch_size=32, learning_
         correct = 0
         total = 0
 
-        for inputs, labels, temporals in train_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            temporals = temporals.to(device)
+        for x, labels, t, lengths in train_loader:
+            x, labels = x.to(device), labels.to(device)
+            t, lengths = t.to(device), lengths.to(device)
 
-            # 前向传播
-            outputs = model(inputs, temporals)
+            outputs = model(x=x, t=t, lengths=lengths)
 
             loss = criterion(outputs, labels)
 
@@ -84,11 +89,11 @@ def train_deep_model(dataset: DataSet, num_epochs=1000, batch_size=32, learning_
         total = 0
 
         with torch.no_grad():
-            for inputs, labels, temporals in val_loader:
-                inputs, labels = inputs.to(device), labels.to(device)
-                temporals = temporals.to(device)
+            for x, labels, t, lengths in val_loader:
+                x, labels = x.to(device), labels.to(device)
+                t, lengths = t.to(device), lengths.to(device)
 
-                outputs = model(inputs, temporals)
+                outputs = model(x=x, t=t, lengths=lengths)
 
                 loss = criterion(outputs, labels)
 
@@ -100,31 +105,37 @@ def train_deep_model(dataset: DataSet, num_epochs=1000, batch_size=32, learning_
         val_acc = 100 * correct / total
 
         # 打印统计信息
-        print('\r', end='')
-        print(f'Epoch {epoch + 1}/{num_epochs}, '
-              f'Train Loss: {train_loss / len(train_loader):.4f}, '
-              f'Train Acc: {train_acc:.2f}%, '
-              f'Val Loss: {val_loss / len(val_loader):.4f}, '
-              f'Val Acc: {val_acc:.2f}%', end='')
+        logPrint(f'Epoch {epoch + 1}/{num_epochs}, '
+                 f'Train Loss: {train_loss / len(train_loader):.4f}, '
+                 f'Train Acc: {train_acc:.2f}%, '
+                 f'Val Loss: {val_loss / len(val_loader):.4f}, '
+                 f'Val Acc: {val_acc:.2f}%')
 
         # 保存最佳模型
         if val_acc > best_val[1]:
             best_val = [train_acc, val_acc]
-            torch.save(model.state_dict(), 'best_model.pth')
+            torch.save(
+                model.state_dict(),
+                config.modelPath / f'{config.model}_{dataset.validSpeaker}.pth'
+            )
 
         if train_acc > best_train[0]:
             best_train = [train_acc, val_acc]
 
-    print(f'\nTraining complete.')
-    print(f'best on train: train_acc={best_train[0]}, val_acc={best_train[1]}')
-    print(f'best on val: train_acc={best_val[0]}, val_acc={best_val[1]}')
+    logPrint(f'Training complete.')
+    logPrint(f'best on train: train_acc={best_train[0]}, val_acc={best_train[1]}')
+    logPrint(f'best on val: train_acc={best_val[0]}, val_acc={best_val[1]}')
 
 
 if __name__ == '__main__':
-    data = DataSet('SAVEE')
+    logPrint(clear=True)
+    data = DataSet(config.dataset)
     data.setValidSpeaker()
-    train_deep_model(data)
+    train_deep_model(
+        dataset=data, model=config.model,
+        num_epochs=config.epochs, batch_size=config.batchSize,
+        learning_rate=config.lr, dropout=config.dropout
+    )
     # for i in range(4):
     #     data.setValidSpeaker(i)
     #     train_deep_model(data)
-

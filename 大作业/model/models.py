@@ -1,13 +1,13 @@
 import torch
 import torch.nn as nn
-
-
-def calLen(X):
-    ...
+from torch.nn.utils.rnn import pack_padded_sequence
 
 
 class BiLSTM(nn.Module):
-    def __init__(self, input_size=117, num_class=7, hidden_size=512, num_layers=2):
+    def __init__(
+            self, input_size=117, num_class=7, hidden_size=512,
+            num_layers=2, dropout=0.5
+    ):
         super().__init__()
         self.lstm = nn.LSTM(
             input_size=input_size,
@@ -16,46 +16,50 @@ class BiLSTM(nn.Module):
             batch_first=True
         )
         self.fc = nn.Linear(hidden_size, num_class)
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
-        # x是列表[tensor(seq_len1, 117), tensor(seq_len2, 117), ...]
+    def forward(self, t, lengths, *args, **kwargs):
+        """
+        :param t: 输入张量 (batch_size, max_seq_len, input_dim)
+        :param lengths: 每个序列的实际长度 (batch_size,)
+        :return output: 分类结果 (batch_size, output_dim)
+        """
 
-        # 1. 拼接所有序列并记录长度
-        lengths = [calLen(seq) for seq in x]
-        # print(lengths)
-        # exit(0)
-        padded_x = torch.nn.utils.rnn.pad_sequence(x, batch_first=True)  # (batch, max_len, 117)
-
-        # 2. 使用pack_padded_sequence处理变长序列
-        packed_x = torch.nn.utils.rnn.pack_padded_sequence(
-            padded_x,
-            lengths=lengths,
+        # 打包序列以忽略填充部分
+        packed_input = pack_padded_sequence(
+            t,
+            lengths.cpu(),  # 需要将长度放在CPU上
             batch_first=True,
-            enforce_sorted=False
+            enforce_sorted=False  # 允许未排序的序列
         )
 
-        # 3. LSTM处理
-        packed_out, (h_n, _) = self.lstm(packed_x)  # h_n形状: (num_layers, batch, hidden_dim)
+        # LSTM前向传播
+        packed_output, (hidden, cell) = self.lstm(packed_input)
 
-        # 4. 取最后一层的隐藏状态（已经是每个序列的最后时间步）
-        last_hidden = h_n[-1]  # (batch, hidden_dim)
+        # 取最后一层的隐藏状态
+        last_hidden = hidden[-1]  # (batch_size, hidden_dim)
 
-        # 5. 全连接层
-        return self.fc(last_hidden)  # (batch, 7)
+        # 应用dropout
+        last_hidden = self.dropout(last_hidden)
+
+        # 全连接层
+        output = self.fc(last_hidden)  # (batch_size, output_dim)
+
+        return output
 
 
 class MLP(nn.Module):
-    def __init__(self, input_dim=6373, num_classes=7):
+    def __init__(self, input_dim=6373, num_classes=7, dropout=0.5):
         super(MLP, self).__init__()
         self.fc1 = nn.Linear(input_dim, 2048)  # 降维
         self.ln1 = nn.LayerNorm(2048)  # 层归一化
         self.relu1 = nn.ReLU()
-        self.dropout1 = nn.Dropout(0.5)
+        self.dropout1 = nn.Dropout(dropout)
 
         self.fc2 = nn.Linear(2048, 1024)
         self.ln2 = nn.LayerNorm(1024)
         self.relu2 = nn.ReLU()
-        self.dropout2 = nn.Dropout(0.5)
+        self.dropout2 = nn.Dropout(dropout)
 
         self.fc3 = nn.Linear(1024, 512)
         self.ln3 = nn.LayerNorm(512)
@@ -63,7 +67,7 @@ class MLP(nn.Module):
 
         self.fc_out = nn.Linear(512, num_classes)  # 输出7分类
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         x = self.fc1(x)
         x = self.ln1(x)
         x = self.relu1(x)
@@ -83,20 +87,23 @@ class MLP(nn.Module):
 
 
 class CombineModel(nn.Module):
-    def __init__(self, features_dim=6373, temporal_dim=39 * 3, num_classes=7):
+    def __init__(
+            self,
+            features_dim=6373, temporal_dim=39 * 3,
+            num_classes=7, dropout=0.5
+    ):
         super(CombineModel, self).__init__()
-        self.mlp = MLP(features_dim, num_classes)
-        self.lstm = BiLSTM(features_dim, temporal_dim)
+        self.mlp = MLP(features_dim, num_classes, dropout=dropout)
+        self.lstm = BiLSTM(temporal_dim, num_classes, dropout=dropout)
         self.attention = nn.Sequential(
-            nn.Linear(num_classes + temporal_dim, 1),
-            nn.Sigmoid()
+            nn.Linear(num_classes * 2, num_classes),  # 输入是两路输出的拼接
+            nn.Softmax(dim=1)  # 对两路输出做归一化
         )
-        self.fc = nn.Linear(num_classes, num_classes)
 
-    def forward(self, X, T):
-        x_feat = self.mlp(X)  # (batch_size, num_classes)
-        t_feat = self.lstm(T)  # (batch_size, temporal_dim)
+    def forward(self, x, t, lengths):
+        x_feat = self.mlp(x=x)  # (batch_size, num_classes)
+        t_feat = self.lstm(t=t, lengths=lengths)  # (batch_size, temporal_dim)
         feat_concat = torch.cat([x_feat, t_feat], dim=1)  # (batch_size, num_classes + temporal_dim)
         attn_weights = self.attention(feat_concat)  # (batch_size, 1)
         combined = attn_weights * x_feat + (1 - attn_weights) * t_feat  # 动态加权
-        return self.fc(combined)
+        return combined
