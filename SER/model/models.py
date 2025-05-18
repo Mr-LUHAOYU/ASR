@@ -100,7 +100,7 @@ class CombineModel(nn.Module):
         self.lstm = BiLSTM(temporal_dim, num_classes, dropout=dropout)
         self.attention = nn.Sequential(
             nn.Linear(num_classes * 2, num_classes),  # 输入是两路输出的拼接
-            nn.Softmax(dim=1)  # 对两路输出做归一化
+            # nn.Softmax(dim=1)  # 对两路输出做归一化
         )
 
     def forward(self, x, t, lengths):

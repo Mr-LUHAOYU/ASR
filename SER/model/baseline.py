@@ -1,36 +1,25 @@
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler, RobustScaler
-from sklearn.pipeline import make_pipeline
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.decomposition import PCA
-from configs import Config
 from dataset import DataSet
+import numpy as np
+
 
 data = DataSet('SAVEE')
-data.setValidSpeaker()
 
-scaler = StandardScaler()
+accuracies = []
+for speakerID in range(len(data)):
+    data.setValidSpeaker(speakerID)
 
-X, y = data.trainData()
-X = X.to_numpy()
-y = Config.encoder.transform(y.squeeze())
-X = scaler.fit_transform(X)
-X_train, y_train = X, y
+    X_train, y_train, _, _ = data.trainData()
+    X_test, y_test, _, _ = data.validData()
+    X_train = X_train.numpy()
+    X_test = X_test.numpy()
+    y_train = y_train.numpy()
+    y_test = y_test.numpy()
 
-X, y = data.validData()
-X = X.to_numpy()
-y = Config.encoder.transform(y.squeeze())
-X = scaler.transform(X)
-X_test, y_test = X, y
+    model = RandomForestClassifier()
 
-pipeline = make_pipeline(
-    RobustScaler(),  # 鲁棒标准化
-    PCA(n_components=200),  # 降维
-    RandomForestClassifier()
-)
+    model.fit(X_train, y_train)
+    acc = model.score(X_test, y_test)
+    accuracies.append(acc)
 
-pipeline.fit(X_train, y_train)
-score = pipeline.score(X_train, y_train)
-print('train', score)
-score = pipeline.score(X_test, y_test)
-print(f'Test', score)
+print(f"\nOverall LOSO Accuracy: {np.mean(accuracies):.3f} ± {np.std(accuracies):.3f}")

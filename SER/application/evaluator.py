@@ -54,32 +54,34 @@ class Extractor(object):
 class Evaluator:
     def __init__(self, model_zoo: Path | str, extractor: Extractor | None = None):
         self.model = None
+        self.dataset = 'SAVEE'
         if isinstance(model_zoo, str):
             model_zoo = Path(model_zoo)
         self.model_zoo = model_zoo
         if extractor is None:
-            extractor = Extractor(zoo=model_zoo)
+            extractor = Extractor(zoo=model_zoo / self.dataset)
         self.extractor = extractor
         self.init_model()
         self.translate = ['anger', 'disgust', 'fear', 'happiness', 'neutral', 'sadness', 'surprise']
 
     def init_model(self):
         self.model = CombineModel()
-        self.model.load_state_dict(torch.load(self.model_zoo / 'combine.pth'))
+        self.model.load_state_dict(torch.load(self.model_zoo / self.dataset / 'combine.pth'))
 
-    def set_model(self, model: str):
-        if self.model.name == model.lower():
+    def set_model(self, model: str, dataset: str):
+        if self.model.name == model.lower() and self.model.dataset == dataset.lower():
             return
 
+        self.dataset = dataset
         if model.lower() == 'lstm':
             self.model = BiLSTM()
-            self.model.load_state_dict(torch.load(self.model_zoo / 'lstm.pth'))
+            self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'lstm.pth'))
         elif model.lower() == 'mlp':
             self.model = MLP()
-            self.model.load_state_dict(torch.load(self.model_zoo / 'mlp.pth'))
+            self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'mlp.pth'))
         elif model.lower() == 'combine':
             self.model = CombineModel()
-            self.model.load_state_dict(torch.load(self.model_zoo / 'combine.pth'))
+            self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'combine.pth'))
         else:
             raise Exception('Unknown model')
 

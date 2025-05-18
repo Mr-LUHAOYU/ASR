@@ -19,33 +19,39 @@ class Page(object):
     def _model_init(self):
         gr.Markdown('## 请选择模型')
         self.model = gr.Dropdown(
-            ["CNN", "LSTM", "Combine", "SVM"],
+            ["MLP", "LSTM", "Combine"],
             label="选择模型类型",
             value='Combine',
+            interactive=True
+        )
+        self.dataset = gr.Dropdown(
+            ["SAVEE"],
+            label="选择预训练的数据",
+            value='SAVEE',
             interactive=True
         )
         gr.Markdown('## 情感分析结果')
         self.emotion = gr.Markdown('尚未输入语音')
         gr.Button('开始分析').click(
             self.handle,
-            inputs=[self.audio, self.model],
+            inputs=[self.audio, self.model, self.dataset],
             outputs=[self.emotion],
         )
 
-    def handle(self, audio, model):
+    def handle(self, audio, model, dataset):
         print('uploading...')
         self.upload(audio)
         print('done')
         print('calculating emotion')
-        emotion = self.get_emotion(model)
-        print('emotion:', emotion)
+        emotion = self.get_emotion(model, dataset)
+        print('### emotion:', emotion)
         return emotion
 
     def upload(self, audio):
         shutil.copyfile(audio, self.tempfile)
 
-    def get_emotion(self, model):
-        self._extractor.set_model(model)
+    def get_emotion(self, model, dataset):
+        self._extractor.set_model(model, dataset)
         emotion = self._extractor(audio=self.tempfile)
         return str(emotion)
 

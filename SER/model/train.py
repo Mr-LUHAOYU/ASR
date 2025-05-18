@@ -64,7 +64,7 @@ def train_deep_model(
             best_val = [train_acc, val_acc]
             torch.save(
                 model.state_dict(),
-                config.modelPath / f'{config.model}.pth'
+                config.modelPath / config.dataset / f'{config.model}.pth'
             )
 
         if train_acc > best_train[0]:
