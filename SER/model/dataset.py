@@ -68,7 +68,7 @@ class DataSet(object):
             X = self.scaler.transform(X)  # 直接transform
         else:
             X = self.scaler.fit_transform(X)  # 首次需要fit_transform
-            joblib.dump(self.scaler, "robust_scaler.pkl")
+            # joblib.dump(self.scaler, "robust_scaler.pkl")
 
         X = torch.tensor(X, dtype=torch.float)
         y = torch.tensor(config.encoder.transform(y.squeeze()))

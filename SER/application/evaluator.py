@@ -63,7 +63,6 @@ class Evaluator:
         self.init_model()
         self.translate = ['anger', 'disgust', 'fear', 'happiness', 'neutral', 'sadness', 'surprise']
 
-
     def init_model(self):
         self.model = CombineModel()
         self.model.load_state_dict(torch.load(self.model_zoo / 'combine.pth'))

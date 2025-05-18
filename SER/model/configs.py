@@ -8,8 +8,8 @@ def get_args():
     parser.add_argument('--basePath', type=str, default='f:/ASR/SER', help='absolute path')
     parser.add_argument('--emotion', type=str, default='a,d,f,h,n,sa,su')
     parser.add_argument('--trainLogfile', type=str, default='train.log')
-    parser.add_argument('--epochs', type=int, default=10, help='number of epochs')
-    parser.add_argument('--batchSize', type=int, default=32, help='batch size')
+    parser.add_argument('--epochs', type=int, default=3, help='number of epochs')
+    parser.add_argument('--batchSize', type=int, default=64, help='batch size')
     parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
     parser.add_argument('--dropout', type=float, default=0.5, help='dropout rate')
     parser.add_argument('--model', type=str, default='combine', choices=['combine', 'lstm', 'mlp'], help='model type')
@@ -27,7 +27,6 @@ class Config(object):
     def loadParams(self, args):
         self.basePath = args.basePath
         self.basePath = Path(self.basePath)
-        # self.emotion = args.emotion
         self.trainLog = args.trainLogfile
         self.epochs = args.epochs
         self.batchSize = args.batchSize

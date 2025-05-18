@@ -40,7 +40,6 @@ class Page(object):
         emotion = self.get_emotion(model)
         print('emotion:', emotion)
         return emotion
-        # self.plot(self.imgs)
 
     def upload(self, audio):
         shutil.copyfile(audio, self.tempfile)
@@ -50,15 +49,3 @@ class Page(object):
         emotion = self._extractor(audio=self.tempfile)
         return str(emotion)
 
-    @property
-    def imgs(self):
-        return 1, 2, 3
-
-    def plot(self, *figs):
-        gr.Markdown("## 数据可视化")
-
-        # 创建图表
-        with gr.Row():
-            with gr.Column():
-                for fig in figs:
-                    gr.Matplotlib(fig)
