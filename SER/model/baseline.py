@@ -3,7 +3,7 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.decomposition import PCA
-from params import Config
+from configs import Config
 from dataset import DataSet
 
 data = DataSet('SAVEE')

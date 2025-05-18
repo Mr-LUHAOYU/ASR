@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from models import BiLSTM, MLP, CombineModel
 from dataset import DataSet
-from params import config
+from configs import config
 
 torch.random.manual_seed(42)
 
