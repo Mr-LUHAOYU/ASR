@@ -4,3 +4,6 @@ LibriSpeech/
 __pycache__
 *.pth
 *.wav
+assets
+*.log
+*.csv
