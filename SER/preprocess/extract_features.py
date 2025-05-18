@@ -42,10 +42,10 @@ class AudioTemporalExtractor(object):
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--datasetsPath', type=str, default='../datasets')
-    parser.add_argument('--datasetName', type=str, default='SAVEE')
+    parser.add_argument('--datasetName', type=str, default='EmoDB')
     parser.add_argument('--featuresPath', type=str, default='../features')
     parser.add_argument('--suffix', type=str, default='wav')
-    parser.add_argument('--sr', type=int, default=44100)
+    parser.add_argument('--sr', type=int, default=48000)
     parser.add_argument('--n_mfcc', type=int, default=39)
     args = parser.parse_args()
     return args
@@ -60,7 +60,7 @@ def process_and_save(
     处理输入目录中的文件并保存到输出目录
 
     :param input_root: 输入根目录 (如 'datasets/data')
-    :param output_root: 输出根目录 (如 'processed/data')
+    :param output_root: 输出根目录 (如 'features/data')
     :param suffix: 要处理的文件后缀 (如 '.wav')
     :param featureExtractor: 提取静态特征
     :param temporalExtractor: 提取时序特征

@@ -14,7 +14,7 @@ def get_args():
     parser.add_argument('--dropout', type=float, default=0.5, help='dropout rate')
     parser.add_argument('--model', type=str, default='combine', choices=['combine', 'lstm', 'mlp'], help='model type')
     parser.add_argument('--modelPath', type=str, default='zoo', help='model path')
-    parser.add_argument('--dataset', type=str, default='SAVEE', choices=['SAVEE'])
+    parser.add_argument('--dataset', type=str, default='SAVEE', choices=['SAVEE', 'EmoDB'], help='dataset type')
 
     args = parser.parse_args()
     return args
