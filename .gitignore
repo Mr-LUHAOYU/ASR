@@ -3,3 +3,4 @@ features/
 LibriSpeech/
 __pycache__
 *.pth
+*.wav
