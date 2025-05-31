@@ -6,13 +6,19 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='SAVEE')
 parser.add_argument('--model', type=str, default='combine')
+parser.add_argument('--savename', type=str, default=None)
+parser.add_argument('--noise', type=str)
+parser.add_argument('--mfcc', type=int)
 args = parser.parse_args()
 dataset = args.dataset
 model = args.model
+savename = args.savename
+if savename is None:
+    savename = model
 
-path = Path(f'assets/{dataset}')
-csv = f'assets/{dataset}/{model}.csv'
-png = f'assets/{dataset}/{model}.png'
+path = Path(f'assets/{dataset.split("_")[0]}/{dataset}')
+csv = path / f'{savename}.csv'
+png = path / f'{savename}.png'
 
 # 1. 读取数据
 df = pd.read_csv(csv)
@@ -42,7 +48,7 @@ ax1.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, 1.15),
 
 # 6. 添加网格和标题
 ax1.grid(True, linestyle='--', alpha=0.6)
-ax1.set_title(f'model : {model}')
+ax1.set_title(f'model : {model}, mfcc : {args.mfcc}, {args.noise}')
 
 # 7. 自动调整布局并保存
 plt.tight_layout()

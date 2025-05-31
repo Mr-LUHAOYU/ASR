@@ -1,6 +1,5 @@
-import joblib
+# import joblib
 import pandas as pd
-import numpy as np
 import torch
 from sklearn.preprocessing import RobustScaler
 from configs import config
@@ -25,30 +24,23 @@ class Speaker(object):
 
 
 class DataSet(object):
-    def __init__(self, name: str):
+    def __init__(self, name: str, mfcc):
         self.name = name
         self.path = config.basePath / 'features' / self.name
-        self.speakers = pd.read_csv(self.path / 'speakers.csv').to_numpy().squeeze()
-        print('total number of speakers: %d' % len(self.speakers))
-        self.validSpeaker = None
+        self.mfcc = mfcc
         self.scaler = RobustScaler()
+        # self.zoo = config.modelPath / config.dataset
 
-    def __len__(self):
-        return len(self.speakers)
+    def data(self, opt, msg: bool = True):
+        path = self.path / opt
+        speakers = pd.read_csv(path / 'speakers.csv').to_numpy().squeeze().tolist()
+        if isinstance(speakers, str):
+            speakers = [speakers]
+        msg and print(f'total {opt} speakers: {len(speakers)}')
 
-    def setValidSpeaker(self, validSpeakerID=None):
-        if validSpeakerID is None:
-            validSpeakerID = np.random.randint(0, self.speakers.shape).item()
-        self.validSpeaker = self.speakers[validSpeakerID]
-        print(self.validSpeaker, 'set as valid speaker')
-
-    def trainData(self):
         X, y, T = [], [], []
-        for speaker in self.speakers:
-            if speaker == self.validSpeaker:
-                continue
-
-            s = Speaker(self.path, speaker)
+        for speaker in speakers:
+            s = Speaker(path, speaker)
             X.append(s.X)
             y.append(s.y)
             T.append(s.T)
@@ -59,26 +51,23 @@ class DataSet(object):
 
         return self._process(X, y, T)
 
-    def validData(self):
-        s = Speaker(self.path, self.validSpeaker)
-        return self._process(s.X, s.y, s.T)
+    def _process(self, X: pd.DataFrame, y: pd.DataFrame, T):
+        # if hasattr(self.scaler, 'mean_'):  # 检查是否已经fit过
+        #     X = self.scaler.transform(X)  # 直接transform
+        # else:
+        #     X = self.scaler.fit_transform(X)  # 首次需要fit_transform
+        #     joblib.dump(self.scaler, self.zoo / "scaler.pkl")
 
-    def _process(self, X, y, T):
-        if hasattr(self.scaler, 'mean_'):  # 检查是否已经fit过
-            X = self.scaler.transform(X)  # 直接transform
-        else:
-            X = self.scaler.fit_transform(X)  # 首次需要fit_transform
-            # joblib.dump(self.scaler, "robust_scaler.pkl")
-
-        X = torch.tensor(X, dtype=torch.float)
-        y = torch.tensor(config.encoder.transform(y.squeeze()))
+        y['label'] = y['label'].map(config.encoder)
+        X = torch.tensor(X.to_numpy(), dtype=torch.float)
+        y = torch.tensor(y.to_numpy().squeeze(), dtype=torch.long)
         T = torch.tensor(T.to_numpy(), dtype=torch.float)
         N, D = T.shape
-        T = T.reshape(N // 117, 117, D).transpose(1, 2)
+        T = T.reshape(N // self.mfcc, self.mfcc, D).transpose(1, 2)
         lengths = (~torch.isnan(T[:, :, 0])).sum(dim=1)
+
         return X, y, T, lengths
 
 
 if __name__ == '__main__':
-    dataset = DataSet(config.dataset)
-    print(len(dataset))
+    dataset = DataSet(config.dataset, mfcc=13)

@@ -12,87 +12,104 @@ class Extractor(object):
     def __init__(
             self,
             smile: opensmile.Smile | None = None,
-            scaler: RobustScaler | None = None,
-            n_mfcc=39,
-            zoo=None
     ):
         if smile is None:
             smile = opensmile.Smile()
-        if scaler is None:
-            scaler = joblib.load(zoo / 'robust_scaler.pkl')
         self.smile = smile
-        self.n_mfcc = n_mfcc
-        self.scaler = scaler
 
-    def __call__(self, audio):
-        return self.extract_features(audio)
+    def __call__(self, audio, mfcc):
+        return self.extract_features(audio, mfcc)
 
-    def temporal(self, audio):
+    def temporal(self, audio, mfcc):
         y, sr = librosa.load(audio)
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=self.n_mfcc)
-        delta_mfcc = librosa.feature.delta(mfcc)
-        delta2_mfcc = librosa.feature.delta(mfcc, order=2)
-        features = np.vstack([mfcc, delta_mfcc, delta2_mfcc])
-        return features
+        n_mfcc = int(mfcc[:2])
+        delta = int(mfcc[-1])
+        if delta == 1:
+            mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
+            return mfcc
+        if delta == 2:
+            mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
+            delta_mfcc = librosa.feature.delta(mfcc)
+            return np.vstack([mfcc, delta_mfcc])
+        if delta == 3:
+            mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
+            delta_mfcc = librosa.feature.delta(mfcc)
+            delta2_mfcc = librosa.feature.delta(mfcc, order=2)
+            features = np.vstack([mfcc, delta_mfcc, delta2_mfcc])
+            return features
+        raise ValueError(f"Unknown delta type {delta}")
 
     def features(self, audio):
         return self.smile.process_file(audio)
 
-    def extract_features(self, audio):
+    def extract_features(self, audio, mfcc: str):
         X = self.features(audio)
-        T = self.temporal(audio)
-        X = self.scaler.transform(X)
-        X = torch.tensor(X, dtype=torch.float)
+        T = self.temporal(audio, mfcc)
+        # X = self.scaler.transform(X)
+        X = torch.tensor(X.to_numpy(), dtype=torch.float)
         T = torch.tensor(T, dtype=torch.float)
         T = T.squeeze(1)
         N, D = T.shape
-        T = T.reshape(N // 117, 117, D).transpose(1, 2)
+        mfcc = eval(mfcc)
+        T = T.reshape(N // mfcc, mfcc, D).transpose(1, 2)
         lengths = (~torch.isnan(T[:, :, 0])).sum(dim=1)
         return X, T, lengths
 
 
 class Evaluator:
-    def __init__(self, model_zoo: Path | str, extractor: Extractor | None = None):
+    def __init__(self, model_zoo: Path | str):
         self.model = None
-        self.dataset = 'SAVEE'
+        self.modelname = None
+        self.dataset = None
+        self.mfcc = None
         if isinstance(model_zoo, str):
             model_zoo = Path(model_zoo)
         self.model_zoo = model_zoo
-        if extractor is None:
-            extractor = Extractor(zoo=model_zoo / self.dataset)
-        self.extractor = extractor
+        self.extractor = Extractor()
         self.init_model()
-        self.translate = ['anger', 'disgust', 'fear', 'happiness', 'neutral', 'sadness', 'surprise']
+        self.translate = ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
 
     def init_model(self):
-        self.model = CombineModel()
-        self.model.load_state_dict(torch.load(self.model_zoo / self.dataset / 'combine.pth'))
+        self.set_model('combine', 'SAVEE', '39*3')
+        # self.model = CombineModel(temporal_dim=eval(self.mfcc))
+        # self.model.load_state_dict(torch.load(self.model_zoo / self.dataset / 'combine.pth'))
 
-    def set_model(self, model: str, dataset: str):
-        if self.model.name == model.lower() and self.model.dataset == dataset.lower():
+    def set_model(self, model: str, dataset: str, mfcc: str):
+        if (
+            self.modelname == model.lower() and
+            self.dataset == dataset.lower() and
+            self.mfcc == mfcc
+        ):
             return
 
-        self.dataset = dataset
+        self.modelname = model.lower()
+        self.dataset = dataset.lower()
+        self.mfcc = mfcc.lower()
+
         if model.lower() == 'lstm':
-            self.model = BiLSTM()
-            self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'lstm.pth'))
+            self.model = BiLSTM(input_size=eval(mfcc))
+            # self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'lstm.pth'))
         elif model.lower() == 'mlp':
             self.model = MLP()
-            self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'mlp.pth'))
+            # self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'mlp.pth'))
         elif model.lower() == 'combine':
-            self.model = CombineModel()
-            self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'combine.pth'))
+            self.model = CombineModel(temporal_dim=eval(mfcc))
+            # self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'combine.pth'))
         else:
             raise Exception('Unknown model')
 
-    def evaluate(self, audio):
+        mfcc = mfcc.replace('*', '_')
+        pth = self.model_zoo / f'{self.dataset}_clean_{mfcc}' / f'{model.lower()}.pth'
+        self.model.load_state_dict(torch.load(pth))
+
+    def evaluate(self, audio, mfcc):
         self.model.eval()
         with torch.no_grad():
-            x, t, lengths = self.extractor(audio)
+            x, t, lengths = self.extractor(audio, mfcc)
             output = self.model(x=x, t=t, lengths=lengths).squeeze()
             output = torch.argmax(output).item()
             emotion = self.translate[output]
         return emotion
 
-    def __call__(self, audio):
-        return self.evaluate(audio)
+    def __call__(self, audio, mfcc):
+        return self.evaluate(audio, mfcc)

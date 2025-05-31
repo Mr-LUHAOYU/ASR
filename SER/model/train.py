@@ -1,3 +1,5 @@
+import os
+
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import torch
@@ -22,21 +24,30 @@ def logPrint(*args, **kwargs):
 
 
 def train_deep_model(
-        dataset: DataSet, model: str = 'combine',
+        datasets: DataSet, model: str = 'lstm',
         num_epochs=10, batch_size=32, learning_rate=0.001,
-        dropout=0.5
+        mfcc=13
 ):
     # 初始化模型
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     if model.lower() == 'combine':
-        model = CombineModel(dropout=dropout).to(device)
+        model = CombineModel(temporal_dim=mfcc).to(device)
     elif model.lower() == 'lstm':
-        model = BiLSTM(dropout=dropout).to(device)
+        model = BiLSTM(input_size=mfcc).to(device)
     elif model.lower() == 'mlp':
-        model = MLP(dropout=dropout).to(device)
+        model = MLP().to(device)
     else:
         raise Exception('Unknown model')
+
+    X, y, T, lengths = datasets.data('train')
+    train_dataset = TensorDataset(X, y, T, lengths)
+
+    X, y, T, lengths = datasets.data('val')
+    val_dataset = TensorDataset(X, y, T, lengths)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # 损失函数和优化器
     criterion = nn.CrossEntropyLoss()
@@ -48,7 +59,7 @@ def train_deep_model(
 
     for epoch in range(num_epochs):
         train_acc, val_acc, train_loss, val_loss = train_epoch(
-            model=model, dataset=dataset, batch_size=batch_size,
+            model=model, train_loader=train_loader, val_loader=val_loader,
             device=device, criterion=criterion, optimizer=optimizer
         )
 
@@ -64,85 +75,75 @@ def train_deep_model(
             best_val = [train_acc, val_acc]
             torch.save(
                 model.state_dict(),
-                config.modelPath / config.dataset / f'{config.model}.pth'
+                config.modelPath / config.dataset / f'{config.savename}.pth'
             )
 
         if train_acc > best_train[0]:
             best_train = [train_acc, val_acc]
 
 
-def train_epoch(
-        model, dataset: DataSet, batch_size, device,
-        criterion, optimizer
+def run(
+        dataloader, model, criterion, optimizer, device,
+        options
 ):
-    train_loss = 0.0
-    train_correct = 0
-    train_total = 0
-    val_loss = 0.0
-    val_correct = 0
-    val_total = 0
-    for speakerID in range(len(dataset)):
-        dataset.setValidSpeaker(speakerID)
-
-        # 预处理数据
-        X, y, T, lengths = dataset.trainData()
-        train_dataset = TensorDataset(X, y, T, lengths)
-
-        X, y, T, lengths = dataset.validData()
-        val_dataset = TensorDataset(X, y, T, lengths)
-
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-
+    if options == 'train':
         model.train()
+    elif options == 'val':
+        model.eval()
 
-        for x, labels, t, lengths in train_loader:
-            x, labels = x.to(device), labels.to(device)
-            t, lengths = t.to(device), lengths.to(device)
+    loss, correct, total = 0.0, 0.0, 0.0
+    for x, labels, t, lengths in dataloader:
+        x, labels = x.to(device), labels.to(device)
+        t, lengths = t.to(device), lengths.to(device)
 
-            outputs = model(x=x, t=t, lengths=lengths)
+        outputs = model(x=x, t=t, lengths=lengths)
+        loss = criterion(outputs, labels)
 
-            loss = criterion(outputs, labels)
-
+        if options == 'train':
             # 反向传播和优化
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            # 统计
-            train_loss += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
-            train_total += labels.size(0)
-            train_correct += (predicted == labels).sum().item()
+        # 统计
+        loss += loss.item()
+        _, predicted = torch.max(outputs.data, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
 
-        # 验证
-        model.eval()
+    return loss, correct * 100 / total
 
-        with torch.no_grad():
-            for x, labels, t, lengths in val_loader:
-                x, labels = x.to(device), labels.to(device)
-                t, lengths = t.to(device), lengths.to(device)
 
-                outputs = model(x=x, t=t, lengths=lengths)
+def train_epoch(
+        train_loader, val_loader, model,
+        device, criterion, optimizer
+):
+    train_loss, train_acc = run(
+        dataloader=train_loader, model=model,
+        criterion=criterion, optimizer=optimizer, device=device,
+        options='train'
+    )
 
-                loss = criterion(outputs, labels)
+    val_loss, val_acc = run(
+        dataloader=val_loader, model=model,
+        criterion=criterion, optimizer=optimizer, device=device,
+        options='val'
+    )
 
-                val_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                val_total += labels.size(0)
-                val_correct += (predicted == labels).sum().item()
+    return train_acc, val_acc, train_loss, val_loss
 
-    train_acc = 100 * train_correct / train_total
-    val_acc = 100 * val_correct / val_total
 
-    return train_acc, val_acc, train_loss / 4 / len(train_loader), val_loss / 4 / len(val_loader)
+def main():
+    logPrint(clear=True)
+    os.makedirs(config.modelPath / config.dataset, exist_ok=True)
+    datasets = DataSet(config.dataset, config.mfcc)
+    train_deep_model(
+        datasets=datasets,
+        model=config.model, num_epochs=config.epochs,
+        batch_size=config.batchSize, learning_rate=config.lr,
+        mfcc=config.mfcc
+    )
 
 
 if __name__ == '__main__':
-    logPrint(clear=True)
-    data = DataSet(config.dataset)
-    train_deep_model(
-        dataset=data, model=config.model,
-        num_epochs=config.epochs, batch_size=config.batchSize,
-        learning_rate=config.lr, dropout=config.dropout
-    )
+    main()

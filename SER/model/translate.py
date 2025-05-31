@@ -6,9 +6,13 @@ import argparse
 parse = argparse.ArgumentParser()
 parse.add_argument('--dataset', type=str, default='SAVEE')
 parse.add_argument('--model', type=str, default='combine')
+parse.add_argument('--savename', type=str, default=None)
 args = parse.parse_args()
 dataset = args.dataset
 model = args.model
+savename = args.savename
+if savename is None:
+    savename = model
 
 # 定义正则表达式匹配模式
 pattern = r"Epoch (\d+)/(\d+), Train Loss: ([\d.]+), Train Acc: ([\d.]+)%, Val Loss: ([\d.]+), Val Acc: ([\d.]+)%"
@@ -40,7 +44,7 @@ for line in lines:
                 'val acc': float(val_acc)
             }]))
 
-filename = f'{assets}/{model}.csv'
+filename = f'{assets}/{savename}.csv'
 pd.concat(result, ignore_index=True).to_csv(
     filename, index=False, header=True
 )

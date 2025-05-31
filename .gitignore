@@ -1,6 +1,7 @@
 datasets/
 features/
 LibriSpeech/
+zoo/
 __pycache__
 *.pth
 *.wav
