@@ -62,44 +62,38 @@ class Evaluator:
         self.modelname = None
         self.dataset = None
         self.mfcc = None
+        self.noise = None
         if isinstance(model_zoo, str):
             model_zoo = Path(model_zoo)
         self.model_zoo = model_zoo
         self.extractor = Extractor()
-        self.init_model()
         self.translate = ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
 
-    def init_model(self):
-        self.set_model('combine', 'SAVEE', '39*3')
-        # self.model = CombineModel(temporal_dim=eval(self.mfcc))
-        # self.model.load_state_dict(torch.load(self.model_zoo / self.dataset / 'combine.pth'))
-
-    def set_model(self, model: str, dataset: str, mfcc: str):
+    def set_model(self, model: str, dataset: str, mfcc: str, noise: str):
         if (
             self.modelname == model.lower() and
             self.dataset == dataset.lower() and
-            self.mfcc == mfcc
+            self.mfcc == mfcc and
+            self.noise == noise.lower()
         ):
             return
 
         self.modelname = model.lower()
         self.dataset = dataset.lower()
         self.mfcc = mfcc.lower()
+        self.noise = noise.lower()
 
         if model.lower() == 'lstm':
             self.model = BiLSTM(input_size=eval(mfcc))
-            # self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'lstm.pth'))
         elif model.lower() == 'mlp':
             self.model = MLP()
-            # self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'mlp.pth'))
         elif model.lower() == 'combine':
             self.model = CombineModel(temporal_dim=eval(mfcc))
-            # self.model.load_state_dict(torch.load(self.model_zoo / dataset / 'combine.pth'))
         else:
             raise Exception('Unknown model')
 
         mfcc = mfcc.replace('*', '_')
-        pth = self.model_zoo / f'{self.dataset}_clean_{mfcc}' / f'{model.lower()}.pth'
+        pth = self.model_zoo / f'{self.dataset}_{noise}_{mfcc}' / f'{model.lower()}.pth'
         self.model.load_state_dict(torch.load(pth))
 
     def evaluate(self, audio, mfcc):

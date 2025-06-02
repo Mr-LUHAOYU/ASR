@@ -2,15 +2,69 @@
 
 ## 1. 理论基础
 
+语音情感识别（Speech Emotion Recognition, SER）是通过分析语音信号中的声学特征来识别说话人情感状态的技术，其核心理论可概括为以下四个层次：
+
+### 1.1  声学基础理论
+- **情感与声学的关联** 
+  不同情感会引发人体发声器官的生理变化，导致声学特征变化：
+  
+  - **愤怒/快乐**：声带紧张度↑ → 基频（F0）升高、语速加快、能量增大
+  - **悲伤**：声带松弛 → 基频降低、语速减慢、能量减弱
+  - **恐惧**：呼吸急促 → 高频能量增加、发音抖动（jitter）
+  
+- **关键声学参数** 
+  | 情感类型 | 基频(F0) | 能量 | 语速 | 频谱倾斜 |
+  | -------- | -------- | ---- | ---- | -------- |
+  | 愤怒     | ↑↑       | ↑↑   | ↑    | 陡峭     |
+  | 悲伤     | ↓↓       | ↓    | ↓↓   | 平缓     |
+
+### 1.2. 特征工程
+- **传统特征（手工设计）** 
+  - **时域特征**：短时能量、过零率
+  - **频域特征**：MFCC（梅尔倒谱系数）、F0轮廓、Formant（共振峰）
+  - **非线性特征**：HNR（谐噪比）、jitter/shimmer（微扰动）
+
+- **深度特征（自动提取）** 
+  通过CNN/Transformer直接从语谱图（Spectrogram）或原始波形中学习高阶表征。
+
+
+### 1.3. 机器学习方法
+- **经典模型** 
+  ```mermaid
+  graph LR
+  A[原始语音] --> B[特征提取]
+  B --> C{SVM/GMM/HMM}
+  C --> D[情感标签]
+  ```
+
+- **深度学习模型** 
+  - **CNN**：处理语谱图（如Log-Mel谱）
+  - **LSTM**：建模时序动态（如F0轨迹）
+  - **端到端模型**（如wav2vec 2.0）直接学习语音-情感映射
+
+### 1.4. 技术挑战
+- **跨数据库泛化** 
+  不同语料库（如SAVEE vs RAVDESS）的录音条件差异导致模型性能下降。
+
+- **个性化差异** 
+  同一情感在不同人语音中表现不同（如男性愤怒基频可能≈女性中性基频）。
+
+- **多模态融合** 
+  结合文本语义（ASR转录）或面部表情可提升准确率，但增加系统复杂度。
+
 ## 2. 数据集
 
 ### 2.1. SAVEE
 
+SAVEE (Surrey Audio-Visual Expressed Emotion) 数据集是一个用于情感识别研究的多模态数据库，主要关注通过语音和面部表情识别人类情感。
 
+SAVEE 数据集共有 7 种情感类别：anger, disgust, fear, happiness, neutral, sadness, surprise
 
-### 2.2. EmoDB
+### 2.2. Ravdess
 
+RAVDESS（Ryerson Audio-Visual Database of Emotional Speech and Song）是一个用于情感识别研究的多模态数据库，包含24名专业演员（12名男性，12名女性）表演的语音和歌曲片段.
 
+Ravdess 数据集共有 8 种情感类别：neutral, calm, happy, sad, angry, fearful, disgust, surprised
 
 ## 3. 特征提取
 
@@ -61,6 +115,30 @@ def extract(self, audio_path, delta=1) -> pd.DataFrame:
 ### 4.1. RandomForest
 
 使用 `sklearn` 包中的随机森林
+
+```python
+def train8val(depth, mfcc, delta, DATASET: str, noise: str):
+    dataset = DataSet(f'{DATASET}_{noise}_{mfcc}_{delta}', mfcc=mfcc * delta)
+    X_train, y_train, _, _ = dataset.data('train', msg=False)
+    X_val, y_val, _, _ = dataset.data('val', msg=False)
+    X_test, y_test, _, _ = dataset.data('test', msg=False)
+
+    # 训练模型
+    rf = RandomForestClassifier(
+        max_depth=depth,
+        random_state=42,
+        n_jobs=-1
+    )
+    rf.fit(X_train, y_train)
+
+    # 在验证集上评估
+    val_pred = rf.predict(X_val)
+    val_score = accuracy_score(y_val, val_pred)
+
+    test_pred = rf.predict(X_test)
+    test_score = accuracy_score(y_test, test_pred)
+    return val_score, test_score
+```
 
 ### 4.2. MLP
 
@@ -268,25 +346,45 @@ def add_harmonic_distortion(audio, distortion_level=0.1):
 1. 在lstm的基础上融合一个简单的mlp，有助于提高泛化表现
 2. 对数据加入噪声、伸缩时间可以提高模型的泛化能力
 
-## 6. 用户界面
+### 6.4. 模型测试 (RandomForest)
 
-### 6.1. 基础展示
+在本实验中，RF 对其参数并不敏感，验证集与测试集的效果在不同参数下相当。
 
-![](assets/front-1.png)
+数据集和引入噪声对 RF 的性能有一定作用，实际效果见下表。
 
-### 6.2. 功能说明
+| with noise | SAVEE | Ravdess |
+| :--------: | :---: | :-----: |
+|    Yes     | 25.00 |  50.83  |
+|     No     | 23.33 |  54.17  |
+
+说明，SAVEE 数据集比较小，所以分类器的性能要差很多。
+
+## 7. 用户界面
+
+### 7.1. 功能说明
 
 - 支持上传 `wav` 后缀的音频文件
-- 支持实时录音上传
-- 支持播放上传或录制的音频
-- 支持选择预设的不同模型
+- 支持录音
+- 支持播放音频
+- 支持裁剪音频
+- 支持选择预设的不同模型与参数
 - 通过训练好的模型分析输入音频的情感
 
-### 6.3. 情感分析演示
+### 7.2. 情感分析演示
 
-![](assets/front-2.png)
+#### 上传音频
 
-### 6.4. 主要代码
+![front-1](assets/front-1.png)
+
+#### 参数选择
+
+![front-2](assets/front-2.png)
+
+#### 分析结果
+
+![front-3](assets/front-3.png)
+
+### 7.3. 主要代码
 
 ```python
 class Page(object):
@@ -309,10 +407,15 @@ class Page(object):
             interactive=True
         )
         self.dataset = gr.Dropdown(
-            ["SAVEE"],
+            ["SAVEE", 'Ravdess'],
             label="选择预训练的数据",
             value='SAVEE',
             interactive=True
+        )
+        self.noise = gr.Radio(
+            ['无噪训练', '带噪训练'],
+            label='无噪训练',
+            type='index'
         )
         self.mfcc = gr.Dropdown(
             [f'{mfcc * 13}*{delta}'
@@ -326,24 +429,25 @@ class Page(object):
         self.emotion = gr.Markdown('尚未输入语音')
         gr.Button('开始分析').click(
             self.handle,
-            inputs=[self.audio, self.model, self.dataset, self.mfcc],
+            inputs=[self.audio, self.model, self.dataset, self.mfcc, self.noise],
             outputs=[self.emotion],
         )
 
-    def handle(self, audio, model, dataset, mfcc):
+    def handle(self, audio, model, dataset, mfcc, noise):
         print('uploading...')
         self.upload(audio)
         print('done')
         print('calculating emotion')
-        emotion = self.get_emotion(model, dataset, mfcc)
+        noise = 'noise' if noise else 'clean'
+        emotion = self.get_emotion(model, dataset, mfcc, noise)
         print('# emotion:', emotion)
-        return emotion
+        return f'## {emotion}'
 
     def upload(self, audio):
         shutil.copyfile(audio, self.tempfile)
 
-    def get_emotion(self, model, dataset, mfcc):
-        self._extractor.set_model(model, dataset, mfcc)
+    def get_emotion(self, model, dataset, mfcc, noise):
+        self._extractor.set_model(model, dataset, mfcc, noise)
         emotion = self._extractor(audio=self.tempfile, mfcc=mfcc)
         return str(emotion)
 ```

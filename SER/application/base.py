@@ -1,6 +1,4 @@
 import gradio as gr
-import numpy as np
-from matplotlib import pyplot as plt
 from evaluator import Evaluator
 import shutil
 
@@ -31,9 +29,10 @@ class Page(object):
             interactive=True
         )
         self.noise = gr.Radio(
-            ['带噪训练', '无噪训练'],
+            ['无噪训练', '带噪训练'],
             label='无噪训练',
-            type='index'
+            type='index',
+            interactive=True
         )
         self.mfcc = gr.Dropdown(
             [f'{mfcc * 13}*{delta}'
@@ -47,24 +46,25 @@ class Page(object):
         self.emotion = gr.Markdown('尚未输入语音')
         gr.Button('开始分析').click(
             self.handle,
-            inputs=[self.audio, self.model, self.dataset, self.mfcc],
+            inputs=[self.audio, self.model, self.dataset, self.mfcc, self.noise],
             outputs=[self.emotion],
         )
 
-    def handle(self, audio, model, dataset, mfcc):
+    def handle(self, audio, model, dataset, mfcc, noise):
         print('uploading...')
         self.upload(audio)
         print('done')
         print('calculating emotion')
-        emotion = self.get_emotion(model, dataset, mfcc)
+        noise = 'noise' if noise else 'clean'
+        emotion = self.get_emotion(model, dataset, mfcc, noise)
         print('# emotion:', emotion)
-        return emotion
+        return f'## {emotion}'
 
     def upload(self, audio):
         shutil.copyfile(audio, self.tempfile)
 
-    def get_emotion(self, model, dataset, mfcc):
-        self._extractor.set_model(model, dataset, mfcc)
+    def get_emotion(self, model, dataset, mfcc, noise):
+        self._extractor.set_model(model, dataset, mfcc, noise)
         emotion = self._extractor(audio=self.tempfile, mfcc=mfcc)
         return str(emotion)
 
